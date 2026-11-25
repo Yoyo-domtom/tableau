@@ -60,7 +60,9 @@ function vuePlanning() {
 function majCorpsPlanning() {
   const b = $("#pl-body"), t = $(".pl-title"), nav = $(".pl-nav");
   if (ST.route !== "planning" || !b) { render(); return; }
+  creaFinir();
   try { b.innerHTML = corpsPlanning(); } catch (e) { noterErreur("planning : " + (e && e.message)); render(); return; }
+  brancherGrille();
   if (t) t.textContent = titrePlanning();
   if (nav) nav.hidden = PL.vue === "liste";
   majDock();
@@ -81,9 +83,8 @@ function plJour() {
   h += `<div class="strip">${semaineDe(l).map(d => `<button class="sd${d === j ? " sel" : ""}${d === t ? " today" : ""}" type="button" data-act="pl-jour" data-date="${d}" aria-pressed="${d === j}" aria-label="${esc(jourLong(d))}"><span class="sd-wd">${esc(wdCourt(d))}</span><span class="sd-n">${pd(d).getDate()}</span><span class="sd-dots">${points(par.get(d) || [])}</span></button>`).join("")}</div>`;
   h += `<p class="pl-daytitle">${esc(cap(F_HEAD.format(pd(j))))}${d2Label(j)}</p>`;
   h += rangJournee([j], par, false);
+  h += astuceGrille();
   h += grille([j], par, 56);
-  const vide = !(par.get(j) || []).some(o => !o.virtuel);
-  if (vide) h += astuce("grille-creneau", "Rien ce jour-là. Touche une heure dans la grille pour y ajouter un événement.");
   return h;
 }
 function d2Label(j) {
@@ -103,6 +104,7 @@ function plSemaine() {
   let h = sousTitreSemaine(l);
   h += `<div class="wk-head" style="--n:${jours.length}"><span></span>${jours.map(d => `<button class="wk-day${d === t ? " today" : ""}" type="button" data-act="pl-ouvrir-jour" data-date="${d}" aria-label="${esc(jourLong(d))}"><span class="sd-wd">${esc(wdCourt(d))}</span><span class="sd-n">${pd(d).getDate()}</span></button>`).join("")}</div>`;
   h += rangJournee(jours, par, true);
+  h += astuceGrille();
   h += grille(jours, par, 46);
   return h;
 }
@@ -255,4 +257,129 @@ function plCreneau(col, clientY) {
   let m = h0 * 60 + Math.floor(y / hh * 2) * 30;
   m = Math.max(0, Math.min(23 * 60, m));
   nouvelEvenement(col.dataset.date, fromMin(m));
+}
+
+/* ---------- créer en glissant : doigt appuyé sur une heure, puis glisser jusqu'à l'heure de fin ----------
+   Les écouteurs sont posés sur la grille seule (touchmove bloquant uniquement là) : le reste de l'appli défile sans attendre. */
+const CREA_DELAI = 380, CREA_PAS = 15;
+let CREA = null;
+const astuceGrille = () => astuce("grille-glisser", "Touche une heure pour ajouter un événement, ou garde le doigt appuyé puis glisse vers le bas jusqu’à l’heure de fin.");
+function brancherGrille() {
+  const cols = $("#pl-body .tg-cols");
+  if (!cols || cols.dataset.branche) return;
+  cols.dataset.branche = "1";
+  cols.addEventListener("touchstart", creaDebut, {passive: true});
+  cols.addEventListener("touchmove", creaBouge, {passive: false});
+  cols.addEventListener("touchend", creaFin, {passive: false});
+  cols.addEventListener("touchcancel", creaFinir, {passive: true});
+  cols.addEventListener("contextmenu", e => e.preventDefault());
+}
+function creaDebut(e) {
+  creaFinir();
+  if (e.touches.length !== 1 || ST.route !== "planning" || !$("#sheet").hidden) return;
+  const col = e.target.closest(".tg-col");
+  if (!col || e.target.closest(".ev:not(.trajet)")) return; // sur un vrai événement, le toucher l'ouvre
+  const p = e.touches[0];
+  CREA = {col, x: p.clientX, y: p.clientY, doigt: p.clientY, actif: false, bouge: false, a: 0, s: 0, e: 0, raf: 0, fantome: null};
+  CREA.timer = setTimeout(creaActiver, CREA_DELAI);
+}
+/** Minute de la journée sous le doigt (y en coordonnées de l'écran). */
+const creaMinute = (c, y) => c.h0 * 60 + (y - c.col.getBoundingClientRect().top) / c.hh * 60;
+function creaActiver() {
+  const c = CREA;
+  if (!c) return;
+  const tg = c.col.closest(".tg");
+  if (!tg || !c.col.isConnected || !$("#sheet").hidden) { creaFinir(); return; }
+  c.h0 = Number(tg.dataset.h0);
+  c.hh = Number(tg.dataset.hh);
+  c.max = Math.min(24 * 60, (c.h0 + Math.round(c.col.offsetHeight / c.hh)) * 60);
+  c.a = Math.max(c.h0 * 60, Math.min(c.max - CREA_PAS, Math.floor(creaMinute(c, c.y) / CREA_PAS) * CREA_PAS));
+  c.s = c.a;
+  c.e = Math.min(c.max, c.a + 60);
+  c.actif = true;
+  geste = null; // le doigt ne change plus de jour ni de semaine
+  vibrer("long");
+  // L'astuce s'efface sans rien déplacer sous le doigt ; elle disparaît au prochain affichage.
+  marquerVu("grille-glisser");
+  const a = $(".astuce [data-cle=\"grille-glisser\"]");
+  if (a) a.closest(".astuce").classList.add("vue");
+  c.fantome = document.createElement("div");
+  c.fantome.className = "ev-fantome" + (c.col.parentElement.children.length > 3 ? " etroit" : "");
+  c.col.appendChild(c.fantome);
+  document.documentElement.classList.add("crea");
+  creaDessiner();
+  c.raf = requestAnimationFrame(creaBoucle);
+}
+function creaBouge(e) {
+  const c = CREA;
+  if (!c || e.touches.length !== 1) return;
+  const p = e.touches[0];
+  if (!c.actif) {
+    // Le doigt bouge avant l'appui long : c'est un défilement ou un glissement, on laisse faire.
+    if (Math.abs(p.clientX - c.x) > 8 || Math.abs(p.clientY - c.y) > 8) creaFinir();
+    return;
+  }
+  if (e.cancelable) e.preventDefault();
+  c.doigt = p.clientY;
+  if (!c.bouge && Math.abs(p.clientY - c.y) > c.hh / 4) c.bouge = true;
+  creaCalculer();
+}
+function creaCalculer() {
+  const c = CREA;
+  if (!c || !c.bouge) return;
+  const m = Math.max(c.h0 * 60, Math.min(c.max, Math.round(creaMinute(c, c.doigt) / CREA_PAS) * CREA_PAS));
+  let s = Math.min(c.a, m), f = Math.max(c.a, m);
+  if (f - s < CREA_PAS) f = Math.min(c.max, s + CREA_PAS);
+  if (s === c.s && f === c.e) return;
+  c.s = s;
+  c.e = f;
+  vibrer();
+  creaDessiner();
+}
+function creaDessiner() {
+  const c = CREA;
+  if (!c || !c.fantome) return;
+  const haut = (c.s - c.h0 * 60) / 60 * c.hh, ht = Math.max((c.e - c.s) / 60 * c.hh - 2, 18);
+  c.fantome.style.top = haut + "px";
+  c.fantome.style.height = ht + "px";
+  c.fantome.innerHTML = `<span>${esc(fmtMin(c.s))} – ${esc(fmtMin(c.e))}</span><small>${esc(fmtDureeMin(c.e - c.s))}</small>`;
+}
+/** Près du bas (barre du pouce) ou du haut (titre), la page défile toute seule pendant qu'on étire. */
+function creaBoucle() {
+  const c = CREA;
+  if (!c || !c.actif) return;
+  if (c.bouge) {
+    const tb = $(".tabbar"), dk = $("#dock"), di = dk && !dk.hidden ? $("#dock .dock-in") : null, tete = $(".pl-head");
+    const bas = Math.min(tb ? tb.getBoundingClientRect().top : window.innerHeight, di ? di.getBoundingClientRect().top : window.innerHeight) - 28;
+    const haut = (tete ? tete.getBoundingClientRect().bottom : 0) + 28;
+    let v = 0;
+    if (c.doigt > bas) v = Math.min(16, 2 + (c.doigt - bas) / 3);
+    else if (c.doigt < haut) v = -Math.min(16, 2 + (haut - c.doigt) / 3);
+    if (v) {
+      const avant = window.scrollY;
+      window.scrollBy(0, v);
+      if (window.scrollY !== avant) creaCalculer();
+    }
+  }
+  c.raf = requestAnimationFrame(creaBoucle);
+}
+function creaFin(e) {
+  const c = CREA;
+  if (!c) return;
+  if (!c.actif) { creaFinir(); return; } // simple toucher : le clic habituel ouvre l'éditeur
+  if (e.cancelable) e.preventDefault(); // pas de clic fantôme sur la feuille qui s'ouvre
+  ST.sansClicJusqua = Date.now() + 450;
+  const date = c.col.dataset.date, s = c.s, f = c.e;
+  creaFinir();
+  $$(".astuce.vue").forEach(x => x.remove()); // le doigt est levé : l'astuce effacée peut libérer sa place
+  nouvelEvenement(date, fromMin(s), f >= 24 * 60 ? "23:59" : fromMin(f));
+}
+function creaFinir() {
+  const c = CREA;
+  CREA = null;
+  if (!c) return;
+  clearTimeout(c.timer);
+  if (c.raf) cancelAnimationFrame(c.raf);
+  if (c.fantome) c.fantome.remove();
+  document.documentElement.classList.remove("crea");
 }

@@ -95,13 +95,14 @@ function render() {
   }
   let html;
   try { html = routeHTML(); } catch (e) { noterErreur("affichage " + ST.route + " : " + (e && e.message)); html = ecranErreur(e); }
+  creaFinir();
   view.innerHTML = html;
   if (fid) {
     const el = document.getElementById(fid);
     if (el) { try { el.focus({preventScroll: true}); if (sel && el.setSelectionRange) el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* rien */ } }
   }
   majChrome();
-  if (ST.route === "planning") plDefiler();
+  if (ST.route === "planning") { brancherGrille(); plDefiler(); }
   if (ST.route === "reglages") majChampsRappel(view, "p");
 }
 
@@ -758,15 +759,36 @@ const champDock = el => !!(el && el.matches && el.matches(".dock input"));
 document.addEventListener("focusin", e => { if (champDock(e.target)) document.documentElement.classList.add("saisie"); });
 document.addEventListener("focusout", e => { if (champDock(e.target)) setTimeout(() => { if (!champDock(document.activeElement)) document.documentElement.classList.remove("saisie"); }, 60); });
 
-/* ---------- gestes : glisser entre onglets, revenir, changer de période ---------- */
+/* ---------- gestes : glisser entre onglets, revenir, changer de période ----------
+   Sur la barre des onglets, glisser change toujours d'onglet (même dans le planning, où glisser sur la grille change de période). */
 let geste = null, gesteImage = 0;
 function modeGeste(cible) {
   if (!$("#sheet").hidden || !$("#viewer").hidden) return null;
-  if (cible.closest(".fstrip,.chips.scroll,input,textarea,select,.tabbar,.dock,.astuce,.wk7")) return null;
+  if (cible.closest(".tabbar")) return "barre";
+  if (cible.closest(".fstrip,.chips.scroll,input,textarea,select,.dock,.astuce,.wk7")) return null;
   if (ST.route === "planning") return cible.closest("#pl-body") && PL.vue !== "liste" ? "periode" : "onglet";
   if (ONGLETS.includes(ST.route)) return "onglet";
   return "retour";
 }
+/** Onglet affiché, ou celui d'où l'on vient quand on est dans un dossier, un élément ou les paramètres. */
+const ongletCourant = () => ONGLETS.indexOf(ONGLETS.includes(ST.route) ? ST.route : ST.tab);
+/** La pastille des onglets suit le doigt pendant le glissement. */
+function pastilleSuit(g) {
+  const p = $(".tab-pill");
+  if (!p) return;
+  const W = window.innerWidth || 400, pos = Math.max(0, Math.min(ONGLETS.length - 1, ongletCourant() - g.d / W));
+  p.style.transition = "none";
+  p.style.transform = `translateX(${pos * 100}%)`;
+}
+function pastilleLache() {
+  const p = $(".tab-pill");
+  if (p) p.style.transition = "";
+  majChrome();
+}
+// Après un appui long dans le planning ou un glissement sur la barre : pas de clic parasite.
+document.addEventListener("click", e => {
+  if (ST.sansClicJusqua && Date.now() < ST.sansClicJusqua) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 function lacher(el) {
   if (!el) return;
   el.style.transform = "";
@@ -801,8 +823,8 @@ document.addEventListener("touchmove", e => {
   geste.dx = dx;
   let d = dx;
   if (geste.mode === "retour" && d < 0) d *= 0.2;
-  if (geste.mode === "onglet") {
-    const i = ONGLETS.indexOf(ST.route);
+  if (geste.mode === "onglet" || geste.mode === "barre") {
+    const i = ongletCourant();
     if ((i <= 0 && d > 0) || (i >= ONGLETS.length - 1 && d < 0)) d *= 0.25;
   }
   geste.d = d;
@@ -813,6 +835,7 @@ document.addEventListener("touchmove", e => {
     if (!g || !g.el) return;
     g.el.style.transform = `translate3d(${g.d}px,0,0)`;
     g.el.style.opacity = String(g.op);
+    if (g.mode === "onglet" || g.mode === "barre") pastilleSuit(g);
   });
 }, {passive: true});
 document.addEventListener("touchend", () => {
@@ -820,9 +843,11 @@ document.addEventListener("touchend", () => {
   geste = null;
   if (gesteImage) { cancelAnimationFrame(gesteImage); gesteImage = 0; }
   if (!g || !g.verrou) return;
+  if (g.mode === "barre") ST.sansClicJusqua = Date.now() + 400;
   const W = window.innerWidth || 400, dt = Math.max(1, Date.now() - g.t), v = Math.abs(g.dx) / dt;
-  const assez = Math.abs(g.dx) > W * 0.24 || (Math.abs(g.dx) > 40 && v > 0.45);
+  const assez = Math.abs(g.dx) > W * (g.mode === "barre" ? 0.18 : 0.24) || (Math.abs(g.dx) > 40 && v > 0.45);
   const dir = g.dx < 0 ? 1 : -1;
+  if (g.mode === "onglet" || g.mode === "barre") pastilleLache();
   if (!assez) { revenir(g.el, g.d, g.op); return; }
   if (g.mode === "periode") { vibrer(); lacher(g.el); plDeplacer(dir, 0.3); return; }
   if (g.mode === "retour") {
@@ -834,7 +859,7 @@ document.addEventListener("touchend", () => {
     animVue = entree(view, -1, 0.3);
     return;
   }
-  const j = ONGLETS.indexOf(ST.route) + dir;
+  const j = ongletCourant() + dir;
   if (j < 0 || j >= ONGLETS.length) { revenir(g.el, g.d, g.op); return; }
   vibrer();
   marquerVu("glisser");
@@ -843,7 +868,13 @@ document.addEventListener("touchend", () => {
   try { allerOnglet(ONGLETS[j]); } finally { ST.glisse = false; }
   animVue = entree(view, dir, 0.3);
 }, {passive: true});
-document.addEventListener("touchcancel", () => { if (geste && geste.el) revenir(geste.el, geste.d, geste.op); geste = null; }, {passive: true});
+document.addEventListener("touchcancel", () => {
+  const g = geste;
+  geste = null;
+  if (!g) return;
+  if (g.el) revenir(g.el, g.d, g.op);
+  if (g.mode === "onglet" || g.mode === "barre") pastilleLache();
+}, {passive: true});
 
 /* ---------- choix qu'on peut retirer en les retouchant ---------- */
 document.addEventListener("pointerdown", e => {

@@ -15,12 +15,10 @@ function labelRoute(r) {
 }
 
 /* ---------- morceaux communs ---------- */
-const VERSION_NOUVEAUTES = "2.3";
+const VERSION_NOUVEAUTES = "2.4";
 const NOUVEAUTES = [
-  "Le Tableau se met à jour tout seul : quand une nouvelle version sort, une carte « Mettre à jour » apparaît sur l’accueil. Un appui, Android confirme, et c’est fait, sans perdre tes données.",
-  "Paramètres › Mises à jour : vérifier à la main, ou laisser l’appli vérifier toute seule.",
-  "Trajets : ta ville de départ, celle des cours et les lieux qui demandent un trajet se règlent dans Paramètres › Trajets.",
-  "L’appli ne contient plus rien de personnel : tes infos restent seulement dans ton téléphone."
+  "Planning : garde le doigt appuyé sur une heure, puis glisse vers le bas jusqu’à l’heure de fin. L’événement est créé avec la bonne durée, il ne reste qu’à lui donner un nom.",
+  "Glisse sur la barre du bas (Accueil, Planning, Fichiers, Claude) pour changer d’onglet, même depuis le planning, où glisser sur la grille change de jour ou de semaine."
 ];
 function carteNouveautes() {
   return `<div class="block"><div class="notice chaud"><p class="notice-title">Nouveau dans le Tableau</p><ul class="nouv">${NOUVEAUTES.map(x => `<li>${esc(x)}</li>`).join("")}</ul><div class="btn-row"><button class="btn sm primary" type="button" data-act="nouveautes-ok">C’est noté</button><button class="btn sm" type="button" data-act="nouveautes-voir">Voir le mode d’emploi</button></div></div></div>`;
@@ -478,12 +476,13 @@ function vueAide() {
   <h3>Ranger</h3><p>Le tableau est fait de sections. Dans chaque section il y a des dossiers, et dans les dossiers des notes, des tâches, des événements, des photos et des PDF.</p>
   <h3>Ajouter</h3><p>Le bouton + ajoute ce que tu veux là où tu te trouves : un événement, une tâche, une note, une photo prise sur le moment, une image de ta galerie ou un PDF. Le bouton pour valider est en bas de la fenêtre. Paramètres › Prise en main place les boutons côté main gauche ou droite.</p>
   <h3>Gestes</h3><ul>
-  <li>Glisse vers la gauche ou la droite pour passer d’un onglet à l’autre.</li>
+  <li>Glisse vers la gauche ou la droite pour passer d’un onglet à l’autre. Sur la barre du bas, ça marche partout, même dans le planning ou dans un dossier.</li>
   <li>Dans un dossier ou un élément, glisse vers la droite pour revenir en arrière.</li>
-  <li>Dans le planning, glisser change de jour, de semaine ou de mois.</li>
+  <li>Dans le planning, glisser sur la grille change de jour, de semaine ou de mois.</li>
   <li>Toucher encore l’onglet où tu es remonte en haut de la page.</li></ul>
   <h3>Planning</h3><ul>
   <li>Jour, Semaine, Mois, Liste et Aujourd’hui sont dans la barre du bas. Touche une case vide de la grille pour créer un événement à cette heure-là.</li>
+  <li>Pour choisir la durée : garde le doigt appuyé sur l’heure de début jusqu’à la petite vibration, puis glisse vers le bas (ou le haut) jusqu’à l’heure de fin et lâche. Près du bas de l’écran, la page défile toute seule.</li>
   <li>Les pastilles d’agenda (École, Sport…) filtrent le planning. Touche encore la même pour tout revoir.</li>
   <li>Un événement peut se répéter (chaque semaine, du lundi au vendredi…) et n’apparaître que les semaines d’école ou d’entreprise.</li>
   <li>La pastille de la semaine dit si tu es à l’école ou en entreprise. Le rythme complet se remplit dans Paramètres.</li></ul>

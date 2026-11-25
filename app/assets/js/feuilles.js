@@ -92,9 +92,11 @@ function choisirFichiers(mode, cible, ctx) {
   ST.natif = {mode, cible, ctx};
   natif("choisir", mode, cible || "", ctx || "noeud");
 }
-function nouvelEvenement(date, heure) {
+function nouvelEvenement(date, heure, fin) {
   const d = date || (ST.route === "planning" ? PL.jour : today());
-  ouvrirEditeur({type: "evenement", parent: dossierEvenements(), date: d, heure: heure || (d === today() ? prochaineHeure() : "09:00")});
+  const o = {type: "evenement", parent: dossierEvenements(), date: d, heure: heure || (d === today() ? prochaineHeure() : "09:00")};
+  if (fin && HEURE_RE.test(fin) && fin > o.heure) o.fin = fin;
+  ouvrirEditeur(o);
 }
 
 /* ---------- éditeur d'élément ---------- */
