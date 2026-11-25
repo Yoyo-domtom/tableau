@@ -17,7 +17,10 @@ def outils():
     """Chemins de aapt, du dexeur, de zipalign, d'apksigner et d'android.jar."""
     home = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     if home and os.path.isdir(os.path.join(home, "build-tools")):
-        bt = sorted(glob.glob(os.path.join(home, "build-tools", "*")), key=lambda p: [int(x) if x.isdigit() else 0 for x in re.split(r"[.-]", os.path.basename(p))])[-1]
+        cle = lambda p: [int(x) if x.isdigit() else 0 for x in re.split(r"[.-]", os.path.basename(p))]
+        dossiers = sorted(glob.glob(os.path.join(home, "build-tools", "*")), key=cle, reverse=True)
+        # La version la plus récente qui a encore tous les outils (aapt a disparu de certaines).
+        bt = next((d for d in dossiers if all(os.path.exists(os.path.join(d, x)) for x in ("aapt", "d8", "zipalign", "apksigner"))), dossiers[0] if dossiers else home)
         plats = sorted(glob.glob(os.path.join(home, "platforms", "android-*", "android.jar")), key=lambda p: int(re.sub(r"\D", "", p.split("android-")[-1]) or 0))
         jar = next((p for p in plats if "android-34" in p), plats[-1])
         return {"aapt": os.path.join(bt, "aapt"), "d8": os.path.join(bt, "d8"), "dx": None,
