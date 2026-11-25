@@ -1,0 +1,68 @@
+# Compile, signe et met en ligne l'appli à chaque modification de app/, site/ ou outils/ sur main.
+# Secrets du dépôt : TABLEAU_CLE (fichier .jks en base64) et TABLEAU_CLE_MDP (son mot de passe).
+# Réglage une fois pour toutes : Settings › Pages › Source : « GitHub Actions ».
+name: Publier l'appli
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "site/**", "outils/**", ".github/workflows/publier.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Certificat de l'appli : un APK signé avec une autre clé ne pourrait pas mettre à jour celle déjà installée.
+  EMPREINTE: 6e05ae8dd90ef1a643c194d6cd7b3ac0cbe39db5ba91be7de83a6b8fe39ff489
+
+jobs:
+  publier:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Outils Android (les mêmes que pour les versions précédentes)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aapt dalvik-exchange zipalign apksigner android-sdk-platform-23
+      - name: Clé de signature
+        env:
+          CLE: ${{ secrets.TABLEAU_CLE }}
+          MDP: ${{ secrets.TABLEAU_CLE_MDP }}
+        run: |
+          if [ -z "$CLE" ]; then echo "::error::Secret TABLEAU_CLE manquant"; exit 1; fi
+          if [ -z "$MDP" ]; then echo "::error::Secret TABLEAU_CLE_MDP manquant"; exit 1; fi
+          printf '%s' "$CLE" | tr -d ' \r\n\t' | base64 -d > "$RUNNER_TEMP/tableau.jks"
+          printf '%s' "$MDP" | tr -d ' \r\n\t' > "$RUNNER_TEMP/tableau.pass"
+          trouve=$(keytool -list -v -keystore "$RUNNER_TEMP/tableau.jks" -storepass:file "$RUNNER_TEMP/tableau.pass" -alias tableau 2>/dev/null \
+            | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          if [ "$trouve" != "$EMPREINTE" ]; then echo "::error::Clé de signature inattendue ou mot de passe faux"; exit 1; fi
+      - name: Compiler, signer, préparer le site
+        run: |
+          proprio="${GITHUB_REPOSITORY_OWNER,,}"
+          depot="${GITHUB_REPOSITORY#*/}"
+          env -u ANDROID_HOME -u ANDROID_SDK_ROOT python3 outils/publier.py \
+            --cle "$RUNNER_TEMP/tableau.jks" --mdp-fichier "$RUNNER_TEMP/tableau.pass" --sortie _site \
+            --source "https://${proprio}.github.io/${depot}/version.json"
+      - name: Effacer la clé
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tableau.jks" "$RUNNER_TEMP/tableau.pass"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploiement
+        uses: actions/deploy-pages@v4
